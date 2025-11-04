@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ular Tangga Edukasi - Cak Rachmad</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden; /* Prevent horizontal scroll */
+        }
+        /* Custom CSS for game board cells and player pips */
+        .grid-cell {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(0,0,0,0.1);
+            background-color: #fff;
+            border-radius: 8px; /* Rounded corners for cells */
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
+            transition: all 0.2s ease-in-out;
+            aspect-ratio: 1 / 1; /* Ensure cells are square */
+        }
+        .grid-cell:hover {
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        .player-pion {
+            width: 2.5rem;
+            height: 2.5rem;
+            border-radius: 9999px;
+            border: 3px solid white;
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            cursor: grab;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            transition: transform 0.3s ease-in-out;
+            z-index: 5; /* Ensure pips are above cell number */
+        }
+        .player-pion:active {
+            cursor: grabbing;
+            transform: scale(1.1);
+        }
+        /* Visual for Snakes and Ladders */
+        .ladder::after {
+            content: '▲'; /* Up arrow for ladder */
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            font-size: 1.2rem;
+            color: green;
+            opacity: 0.7;
+            pointer-events: none; /* Do not interfere with drag/drop */
+        }
+        .snake::after {
+            content: '▼'; /* Down arrow for snake */
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            font-size: 1.2rem;
+            color: red;
+            opacity: 0.7;
+            pointer-events: none; /* Do not interfere with drag/drop */
+        }
+        /* Fade in and slide up animation for modals */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .animate-fade-in-up {
+            animation: fadeInUp 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React and ReactDOM CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Make Firebase functions globally accessible within this script for Babel to use
+        window.firebaseApp = initializeApp;
+        window.firebaseAuth = { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
+        window.firebaseFirestore = { getFirestore, doc, getDoc, setDoc, onSnapshot, collection };
+    </script>
+
+    <script type="text/babel">
+        // Global variables provided by the Canvas environment (these would be set by the host environment)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+        // Initialize Firebase App
+        const app = window.firebaseApp(firebaseConfig);
+        const db = window.firebaseFirestore.getFirestore(app);
+        const auth = window.firebaseAuth.getAuth(app);
+
+        // --- Constants for Game Logic ---
+        const BOARD_SIZE = 100;
+        const PLAYERS_COUNT = 4;
+        const PLAYER_COLORS = ['bg-blue-500', 'bg-green-500', 'bg-red-500', 'bg-yellow-500'];
+
+        // Configuration for Snakes and Ladders (and their associated questions)
+        const SNAKES_LADDERS_CONFIG = {
+          // Ladders (start -> end)
+          3: { type: 'ladder', to: 21, questionId: 'q3' },
+          8: { type: 'ladder', to: 30, questionId: 'q8' },
+          17: { type: 'ladder', to: 44, questionId: 'q17' },
+          28: { type: 'ladder', to: 84, questionId: 'q28' },
+          36: { type: 'ladder', to: 57, questionId: 'q36' },
+          51: { type: 'ladder', to: 67, questionId: 'q51' },
+          63: { type: 'ladder', to: 80, questionId: 'q63' },
+          71: { type: 'ladder', to: 91, questionId: 'q71' },
+          87: { type: 'ladder', to: 94, questionId: 'q87' },
+          4: { type: 'ladder', to: 16, questionId: 'q4' }, // Added to make 20
+          // Snakes (start -> end)
+          98: { type: 'snake', to: 78, questionId: 'q98' },
+          95: { type: 'snake', to: 75, questionId: 'q95' },
+          92: { type: 'snake', to: 72, questionId: 'q92' },
+          88: { type: 'snake', to: 68, questionId: 'q88' },
+          77: { type: 'snake', to: 55, questionId: 'q77' },
+          62: { type: 'snake', to: 39, questionId: 'q62' },
+          49: { type: 'snake', to: 11, questionId: 'q49' },
+          46: { type: 'snake', to: 25, questionId: 'q46' },
+          32: { type: 'snake', to: 14, questionId: 'q32' },
+          23: { type: 'snake', to: 5, questionId: 'q23' },
+        };
+
+        // Default questions (editable via settings)
+        const DEFAULT_QUESTIONS = Object.fromEntries(
+          Object.keys(SNAKES_LADDERS_CONFIG).map((squareNum, index) => [
+            SNAKES_LADDERS_CONFIG[squareNum].questionId,
+            {
+              text: `Pertanyaan default untuk kotak ${squareNum}: Apa ibu kota Indonesia?`,
+              answer: 'Jakarta',
+            },
+          ])
+        );
+
+        // --- Utility Functions ---
+        const generateUniqueId = () => crypto.randomUUID();
+
+        // --- Main App Component ---
+        function App() {
+          const [userId, setUserId] = React.useState(null); // Current Firebase user ID
+          const [isAuthReady, setIsAuthReady] = React.useState(false); // Flag for Firebase auth readiness
+          const [gameId, setGameId] = React.useState(''); // ID of the current game
+          const [gameData, setGameData] = React.useState(null); // Full game state from Firestore
+          const [loading, setLoading] = React.useState(true); // Loading state for initial data fetch
+          const [showGameIdInput, setShowGameIdInput] = React.useState(false); // To show/hide game ID input
+          const [inputGameId, setInputGameId] = React.useState(''); // Input for joining a game
+
+          const [diceRoll, setDiceRoll] = React.useState([1, 1]); // Current dice values
+          const [showQuestionModal, setShowQuestionModal] = React.useState(false); // Controls question modal visibility
+          const [currentQuestion, setCurrentQuestion] = React.useState(null); // Current question data
+          const [questionAnsweredCorrectly, setQuestionAnsweredCorrectly] = React.useState(null); // Feedback for question answer
+          const [pendingMove, setPendingMove] = React.useState(null); // Stores move data if a question is pending
+          const [showWinnerModal, setShowWinnerModal] = React.useState(false); // Controls winner modal visibility
+          const [winnerName, setWinnerName] = React.useState(''); // Name of the winner
+
+          const [showSettingsModal, setShowSettingsModal] = React.useState(false); // Controls settings modal visibility
+
+          // --- Firebase Authentication and Game Setup ---
+          React.useEffect(() => {
+            const initializeAuthAndFirebase = async () => {
+              try {
+                // Sign in with custom token if available, otherwise anonymously
+                if (typeof __initial_auth_token !== 'undefined') {
+                  await window.firebaseAuth.signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                  await window.firebaseAuth.signInAnonymously(auth);
+                }
+              } catch (error) {
+                console.error("Firebase auth error:", error);
+                // Fallback to anonymous sign-in if custom token fails
+                await window.firebaseAuth.signInAnonymously(auth);
+              }
+            };
+
+            // Listen for auth state changes
+            const unsubscribe = window.firebaseAuth.onAuthStateChanged(auth, async (user) => {
+              if (user) {
+                setUserId(user.uid);
+                setIsAuthReady(true);
+                setLoading(false);
+              } else {
+                setUserId(null);
+                setIsAuthReady(true);
+                setLoading(false);
+                // If not authenticated, try to sign in (anonymously if needed)
+                if (!auth.currentUser) {
+                  await initializeAuthAndFirebase();
+                }
+              }
+            });
+
+            // Initial auth attempt if no user is found immediately
+            if (!auth.currentUser) {
+              initializeAuthAndFirebase();
+            }
+
+            return () => unsubscribe(); // Clean up auth listener
+          }, []);
+
+          // --- Game Data Listener ---
+          React.useEffect(() => {
+            if (!isAuthReady || !gameId || !userId) return;
+
+            const gameDocRef = window.firebaseFirestore.doc(db, `artifacts/${appId}/public/data/games`, gameId);
+
+            const unsubscribe = window.firebaseFirestore.onSnapshot(gameDocRef, (docSnap) => {
+              if (docSnap.exists()) {
+                const data = docSnap.data();
+                setGameData(data);
+                if (data.gameStatus === 'finished' && !showWinnerModal) {
+                  const winner = data.players.find(p => p.position === BOARD_SIZE);
+                  if (winner) {
+                    setWinnerName(winner.name);
+                    setShowWinnerModal(true);
+                  }
+                }
+              } else {
+                console.log("No such game document!");
+                setGameData(null); // Game doesn't exist
+                setShowGameIdInput(true); // Prompt user to create/join
+              }
+              setLoading(false);
+            }, (error) => {
+              console.error("Error listening to game data:", error);
+              setLoading(false);
+            });
+
+            return () => unsubscribe(); // Clean up listener
+          }, [gameId, isAuthReady, userId]);
+
+          // --- Game Initialization and Creation ---
+          const createNewGame = async () => {
+            setLoading(true);
+            const newGameId = generateUniqueId();
+            const initialPlayers = Array.from({ length: PLAYERS_COUNT }, (_, i) => ({
+              id: generateUniqueId(),
+              name: `Pemain ${i + 1}`,
+              position: 1,
+              color: PLAYER_COLORS[i],
+              answeredQuestions: {}, // Store question IDs answered by this player
+            }));
+
+            const initialGameData = {
+              players: initialPlayers,
+              currentTurnPlayerId: initialPlayers[0].id,
+              boardConfig: SNAKES_LADDERS_CONFIG,
+              questions: DEFAULT_QUESTIONS,
+              gameStatus: 'playing', // Or 'waiting' if we implement a lobby
+              createdAt: new Date().toISOString(),
+              hostUserId: userId, // To identify the creator/host
+            };
+
+            try {
+              const gameDocRef = window.firebaseFirestore.doc(db, `artifacts/${appId}/public/data/games`, newGameId);
+              await window.firebaseFirestore.setDoc(gameDocRef, initialGameData);
+              setGameId(newGameId);
+              setShowGameIdInput(false);
+              console.log("Game created with ID:", newGameId);
+            } catch (e) {
+              console.error("Error creating new game:", e);
+              setLoading(false);
+            }
+          };
+
+          const joinGame = async () => {
+            if (!inputGameId) return;
+            setLoading(true);
+            try {
+              const gameDocRef = window.firebaseFirestore.doc(db, `artifacts/${appId}/public/data/games`, inputGameId);
+              const docSnap = await window.firebaseFirestore.getDoc(gameDocRef);
+              if (docSnap.exists()) {
+                setGameId(inputGameId);
+                setShowGameIdInput(false);
+                console.log("Joined game with ID:", inputGameId);
+              } else {
+                console.warn("Game ID does not exist.");
+                // Using a custom modal/message box instead of alert()
+                alert("ID Permainan tidak ditemukan!");
+                setLoading(false);
+              }
+            } catch (e) {
+              console.error("Error joining game:", e);
+              alert("Terjadi kesalahan saat bergabung dengan permainan.");
+              setLoading(false);
+            }
+          };
+
+          // --- Game Logic Functions ---
+          const handleRollDice = async () => {
+            if (!gameData || !userId || gameData.gameStatus === 'finished') return;
+
+            const roll1 = Math.floor(Math.random() * 6) + 1;
+            const roll2 = Math.floor(Math.random() * 6) + 1;
+            const totalRoll = roll1 + roll2;
+            setDiceRoll([roll1, roll2]);
+
+            const currentPlayerIndex = gameData.players.findIndex(p => p.id === gameData.currentTurnPlayerId);
+            let currentPlayer = { ...gameData.players[currentPlayerIndex] };
+            let newPosition = currentPlayer.position + totalRoll;
+
+            // Cap at 100
+            if (newPosition > BOARD_SIZE) {
+              newPosition = BOARD_SIZE - (newPosition - BOARD_SIZE); // Rebound if over 100
+              if (newPosition < 1) newPosition = 1; // Ensure it doesn't go below 1
+            }
+
+            // Check for special squares
+            const specialSquare = SNAKES_LADDERS_CONFIG[newPosition];
+            let finalPosition = newPosition;
+            let questionToAsk = null;
+
+            if (specialSquare) {
+              questionToAsk = gameData.questions[specialSquare.questionId];
+              if (questionToAsk) {
+                // Store pending move to apply after question is answered
+                setPendingMove({
+                  playerIndex: currentPlayerIndex,
+                  newPosition: newPosition,
+                  specialSquareTarget: specialSquare.to,
+                  questionId: specialSquare.questionId
+                });
+                setCurrentQuestion(questionToAsk);
+                setShowQuestionModal(true);
+                return; // Pause game flow until question is answered
+              } else {
+                  // If no question, just apply snake/ladder immediately
+                  finalPosition = specialSquare.to;
+              }
+            }
+
+            // Update player position and turn
+            updatePlayerPositionAndTurn(currentPlayerIndex, finalPosition);
+          };
+
+          const updatePlayerPositionAndTurn = async (playerIndex, newPosition) => {
+            if (!gameData) return;
+
+            let updatedPlayers = [...gameData.players];
+            updatedPlayers[playerIndex].position = newPosition;
+
+            // Check for win condition
+            let gameStatus = gameData.gameStatus;
+            if (newPosition >= BOARD_SIZE) {
+              gameStatus = 'finished';
+              setWinnerName(updatedPlayers[playerIndex].name);
+              setShowWinnerModal(true);
+            }
+
+            // Determine next player's turn
+            const nextPlayerIndex = (playerIndex + 1) % PLAYERS_COUNT;
+            const nextPlayerId = updatedPlayers[nextPlayerIndex].id;
+
+            const updatedGameData = {
+              ...gameData,
+              players: updatedPlayers,
+              currentTurnPlayerId: nextPlayerId,
+              gameStatus: gameStatus,
+            };
+
+            try {
+              const gameDocRef = window.firebaseFirestore.doc(db, `artifacts/${appId}/public/data/games`, gameId);
+              await window.firebaseFirestore.setDoc(gameDocRef, updatedGameData);
+            } catch (e) {
+              console.error("Error updating game data:", e);
+            }
+          };
+
+          const handleAnswerQuestion = (answer) => {
+            if (!currentQuestion || !pendingMove || !gameData) return;
+
+            const isCorrect = answer.toLowerCase().trim() === currentQuestion.answer.toLowerCase().trim();
+            setQuestionAnsweredCorrectly(isCorrect);
+
+            let finalPosition = pendingMove.newPosition; // Initial position after dice roll
+            let currentPlayer = { ...gameData.players[pendingMove.playerIndex] };
+
+            if (isCorrect) {
+              // Apply snake/ladder if correct
+              finalPosition = pendingMove.specialSquareTarget;
+              // Mark question as answered for this player
+              currentPlayer.answeredQuestions[pendingMove.questionId] = true;
+            } else {
+              // Optional: Penalty for wrong answer (e.g., move back, skip turn)
+              // For now, no penalty, just don't apply snake/ladder
+              console.log("Jawaban salah! Tidak bergerak melalui ular/tangga.");
+            }
+
+            // Delay closing modal and updating state to show feedback
+            setTimeout(() => {
+              setShowQuestionModal(false);
+              setCurrentQuestion(null);
+              setQuestionAnsweredCorrectly(null);
+              setPendingMove(null); // Clear pending move
+
+              // Now apply the move
+              updatePlayerPositionAndTurn(pendingMove.playerIndex, finalPosition);
+            }, 1500); // Show feedback for 1.5 seconds
+          };
+
+          // --- Manual Player Movement (Drag & Drop) ---
+          const handleDragStart = (e, playerId) => {
+            e.dataTransfer.setData("playerId", playerId);
+          };
+
+          const handleDrop = async (e, targetSquare) => {
+            if (!gameData) return;
+            const playerId = e.dataTransfer.getData("playerId");
+            const playerIndex = gameData.players.findIndex(p => p.id === playerId);
+
+            if (playerIndex > -1) {
+              const updatedPlayers = [...gameData.players];
+              updatedPlayers[playerIndex].position = targetSquare;
+
+              const updatedGameData = {
+                ...gameData,
+                players: updatedPlayers,
+              };
+
+              try {
+                const gameDocRef = window.firebaseFirestore.doc(db, `artifacts/${appId}/public/data/games`, gameId);
+                await window.firebaseFirestore.setDoc(gameDocRef, updatedGameData);
+              } catch (e) {
+                console.error("Error moving player manually:", e);
+              }
+            }
+          };
+
+          const handleDragOver = (e) => {
+            e.preventDefault(); // Necessary to allow dropping
+          };
+
+          // --- Helper to get player's current turn status ---
+          const isMyTurn = (player) => gameData && gameData.currentTurnPlayerId === player.id;
+
+          if (!isAuthReady || loading) {
+            return (
+              <div className="flex items-center justify-center min-h-screen bg-gray-100 font-inter">
+                <div className="text-xl font-semibold text-gray-700">Memuat Aplikasi...</div>
+              </div>
+            );
+          }
+
+          // --- Initial Game Setup UI ---
+          if (showGameIdInput || !gameData) {
+            return (
+              <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-purple-400 to-indigo-600 text-white p-4 font-inter">
+                <h1 className="text-4xl font-bold mb-8 drop-shadow-lg">Ular Tangga Edukasi</h1>
+                <p className="mb-6 text-lg text-center">Oleh Cak Rachmad</p>
+                <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md text-gray-800">
+                  <h2 className="text-2xl font-semibold mb-6 text-center">Mulai Permainan Baru atau Gabung</h2>
+                  <button
+                    onClick={createNewGame}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg mb-4 transform hover:scale-105 transition duration-300 shadow-md"
+                  >
+                    Buat Permainan Baru
+                  </button>
+                  <div className="flex items-center justify-between my-4">
+                    <hr className="flex-grow border-gray-300" />
+                    <span className="mx-4 text-gray-500">ATAU</span>
+                    <hr className="flex-grow border-gray-300" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Masukkan ID Permainan untuk Bergabung"
+                    value={inputGameId}
+                    onChange={(e) => setInputGameId(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+                  />
+                  <button
+                    onClick={joinGame}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transform hover:scale-105 transition duration-300 shadow-md"
+                  >
+                    Gabung Permainan
+                  </button>
+                  {userId && <p className="mt-4 text-sm text-center text-gray-600">ID Pengguna Anda: <span className="font-mono break-all">{userId}</span></p>}
+                </div>
+              </div>
+            );
+          }
+
+          // --- Main Game UI ---
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-purple-400 to-indigo-600 flex flex-col items-center justify-center p-4 font-inter">
+              <h1 className="text-5xl font-extrabold mb-4 text-white drop-shadow-lg">Ular Tangga Edukasi</h1>
+              <p className="text-xl text-white mb-6 drop-shadow">Oleh Cak Rachmad</p>
+
+              {gameId && <p className="text-white text-sm mb-4">ID Permainan Saat Ini: <span className="font-mono font-semibold">{gameId}</span> (Bagikan ID ini untuk mengundang teman!)</p>}
+
+              <div className="flex flex-col lg:flex-row gap-6 w-full max-w-6xl">
+                {/* Player Info Panel */}
+                <div className="lg:w-1/4 bg-white p-6 rounded-xl shadow-2xl flex flex-col justify-between">
+                  <div>
+                    <h2 className="text-3xl font-bold mb-6 text-gray-800 text-center">Informasi Pemain</h2>
+                    {gameData?.players.map((player) => (
+                      <div
+                        key={player.id}
+                        className={`p-4 mb-3 rounded-lg shadow-md flex items-center justify-between transform transition-transform duration-300 ${isMyTurn(player) ? 'scale-105 border-4 border-blue-400 bg-blue-50' : 'bg-gray-50'}`}
+                      >
+                        <div className="flex items-center">
+                          <div className={`w-8 h-8 rounded-full ${player.color} border-2 border-white mr-3 shadow-sm`}></div>
+                          <span className={`font-semibold text-lg ${isMyTurn(player) ? 'text-blue-700' : 'text-gray-700'}`}>{player.name}</span>
+                        </div>
+                        <span className={`text-xl font-bold ${isMyTurn(player) ? 'text-blue-700' : 'text-gray-900'}`}>
+                          Posisi: {player.position}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="mt-6 text-center">
+                      <span className="text-xl font-semibold text-gray-800">Giliran: </span>
+                      <span className="text-xl font-bold text-blue-600">
+                        {gameData?.players.find(p => p.id === gameData.currentTurnPlayerId)?.name || 'Memuat...'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 flex flex-col gap-4">
+                    <button
+                      onClick={handleRollDice}
+                      className="w-full bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white font-bold py-4 px-8 rounded-xl text-2xl shadow-lg transition transform hover:scale-105 active:scale-95 duration-200"
+                    >
+                      Gulir Dadu!
+                    </button>
+                    <div className="flex justify-center items-center text-4xl font-extrabold text-gray-900 space-x-4 my-4">
+                      <div className="bg-blue-100 p-4 rounded-xl shadow-inner border border-blue-200 min-w-[70px] text-center">{diceRoll[0]}</div>
+                      <div className="bg-blue-100 p-4 rounded-xl shadow-inner border border-blue-200 min-w-[70px] text-center">{diceRoll[1]}</div>
+                    </div>
+                    <button
+                      onClick={() => setShowSettingsModal(true)}
+                      className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-3 px-6 rounded-xl shadow-md transition transform hover:scale-105 active:scale-95 duration-200"
+                    >
+                      Pengaturan Game & Pertanyaan
+                    </button>
+                    <button
+                      onClick={() => {
+                        setGameId(''); // Reset game ID to prompt user to create/join
+                        setGameData(null); // Clear game data
+                        setShowGameIdInput(true); // Show input again
+                        setLoading(false); // Make sure loading is false so UI updates
+                      }}
+                      className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-xl shadow-md transition transform hover:scale-105 active:scale-95 duration-200"
+                    >
+                      Keluar Game
+                    </button>
+                  </div>
+                </div>
+
+                {/* Game Board */}
+                <div className="lg:w-3/4 bg-white p-6 rounded-xl shadow-2xl relative overflow-hidden">
+                  <div
+                    className="grid gap-1 md:gap-2 p-2 mx-auto"
+                    style={{
+                      gridTemplateColumns: `repeat(10, minmax(0, 1fr))`,
+                      width: '100%',
+                      maxWidth: '600px', // Max width for the board itself
+                    }}
+                  >
+                    {Array.from({ length: BOARD_SIZE }, (_, i) => {
+                      const squareNumber = BOARD_SIZE - i; // Start from 100, down to 1
+                      const row = Math.floor((squareNumber - 1) / 10);
+                      const isEvenRow = row % 2 === 0;
+
+                      // Calculate display order for zig-zag board
+                      let displaySquareNumber;
+                      if (isEvenRow) { // Rows 0, 2, 4... (100-91, 80-71, 60-51...)
+                        displaySquareNumber = squareNumber;
+                      } else { // Rows 1, 3, 5... (90-81, 70-61, 50-41...)
+                        displaySquareNumber = (row * 10) + (10 - (squareNumber - (row * 10))) + 1;
+                      }
+
+                      const actualSquareNumber = displaySquareNumber; // This is the 1-100 number on the board
+
+                      const specialSquareType = SNAKES_LADDERS_CONFIG[actualSquareNumber]?.type;
+                      const hasQuestion = SNAKES_LADDERS_CONFIG[actualSquareNumber]?.questionId;
+
+                      return (
+                        <div
+                          key={actualSquareNumber}
+                          className={`grid-cell text-lg md:text-xl font-bold select-none ${specialSquareType === 'ladder' ? 'ladder bg-green-50' : ''} ${specialSquareType === 'snake' ? 'snake bg-red-50' : ''} ${hasQuestion ? 'border-2 border-purple-400' : ''}`}
+                          onDrop={(e) => handleDrop(e, actualSquareNumber)}
+                          onDragOver={handleDragOver}
+                        >
+                          <span className="z-10 text-gray-700">{actualSquareNumber}</span>
+                          {gameData?.players.map((player) =>
+                            player.position === actualSquareNumber && (
+                              <div
+                                key={player.id}
+                                className={`player-pion ${player.color}`}
+                                draggable="true"
+                                onDragStart={(e) => handleDragStart(e, player.id)}
+                                style={{
+                                  left: `${Math.random() * 50 + 25}%`, // Randomize position within cell for multiple players
+                                  top: `${Math.random() * 50 + 25}%`,
+                                  transform: 'translate(-50%, -50%)',
+                                }}
+                              >
+                                {player.name[0]} {/* Display first letter of name */}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Question Modal */}
+              {showQuestionModal && currentQuestion && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50">
+                  <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg text-center transform scale-95 animate-fade-in-up transition-transform duration-300">
+                    <h3 className="text-3xl font-bold mb-6 text-purple-700">Pertanyaan Edukasi!</h3>
+                    <p className="text-xl text-gray-800 mb-8">{currentQuestion.text}</p>
+                    <input
+                      type="text"
+                      placeholder="Ketik jawaban Anda di sini"
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') handleAnswerQuestion(e.target.value);
+                      }}
+                      className="w-full p-4 border border-gray-300 rounded-lg mb-6 text-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                    <button
+                      onClick={() => handleAnswerQuestion(document.querySelector('input[type="text"]').value)}
+                      className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-xl text-xl shadow-lg transition transform hover:scale-105 active:scale-95 duration-200"
+                    >
+                      Kirim Jawaban
+                    </button>
+                    {questionAnsweredCorrectly !== null && (
+                      <p className={`mt-4 text-lg font-bold ${questionAnsweredCorrectly ? 'text-green-600' : 'text-red-600'}`}>
+                        {questionAnsweredCorrectly ? 'Jawaban Benar!' : 'Jawaban Salah!'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Winner Modal */}
+              {showWinnerModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50">
+                  <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md text-center transform scale-95 animate-fade-in-up transition-transform duration-300">
+                    <h3 className="text-4xl font-bold mb-6 text-green-700">🎉 Selamat! 🎉</h3>
+                    <p className="text-2xl text-gray-800 mb-8 font-semibold">Pemenangnya adalah <span className="text-green-600">{winnerName}</span>!</p>
+                    <button
+                      onClick={() => {
+                        setShowWinnerModal(false);
+                        setGameData(null); // Reset game state
+                        setGameId(''); // Clear game ID
+                        setShowGameIdInput(true); // Allow creating/joining new game
+                      }}
+                      className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-xl text-xl shadow-lg transition transform hover:scale-105 active:scale-95 duration-200"
+                    >
+                      Main Lagi
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Settings Modal */}
+              {showSettingsModal && (
+                <SettingsModal
+                  gameData={gameData}
+                  onSave={async (updatedSettings) => {
+                    if (!gameData || !gameId) return;
+                    const updatedPlayers = gameData.players.map((p, index) => ({
+                      ...p,
+                      name: updatedSettings.playerNames[index] || p.name,
+                    }));
+
+                    const updatedGameData = {
+                      ...gameData,
+                      players: updatedPlayers,
+                      questions: updatedSettings.questions, // Save updated questions
+                    };
+
+                    try {
+                      const gameDocRef = window.firebaseFirestore.doc(db, `artifacts/${appId}/public/data/games`, gameId);
+                      await window.firebaseFirestore.setDoc(gameDocRef, updatedGameData);
+                      setShowSettingsModal(false);
+                    } catch (e) {
+                      console.error("Error saving settings:", e);
+                    }
+                  }}
+                  onClose={() => setShowSettingsModal(false)}
+                />
+              )}
+            </div>
+          );
+        }
+
+        // --- Settings Modal Component ---
+        function SettingsModal({ gameData, onSave, onClose }) {
+          const [playerNames, setPlayerNames] = React.useState(
+            gameData?.players.map(p => p.name) || Array(PLAYERS_COUNT).fill('')
+          );
+          // Prepare initial questions for editing, linking to square numbers
+          const initialQuestionInputs = Object.keys(SNAKES_LADDERS_CONFIG).map(squareNum => {
+            const qId = SNAKES_LADDERS_CONFIG[squareNum].questionId;
+            const qData = gameData?.questions[qId] || DEFAULT_QUESTIONS[qId];
+            return {
+              square: parseInt(squareNum),
+              id: qId,
+              text: qData?.text || '',
+              answer: qData?.answer || '',
+            };
+          }).sort((a, b) => a.square - b.square); // Sort by square number
+
+          const [questionInputs, setQuestionInputs] = React.useState(initialQuestionInputs);
+
+          const handlePlayerNameChange = (index, name) => {
+            const newNames = [...playerNames];
+            newNames[index] = name;
+            setPlayerNames(newNames);
+          };
+
+          const handleQuestionChange = (index, field, value) => {
+            const newQuestions = [...questionInputs];
+            newQuestions[index][field] = value;
+            setQuestionInputs(newQuestions);
+          };
+
+          const handleSave = () => {
+            const updatedQuestionsMap = questionInputs.reduce((acc, q) => {
+              acc[q.id] = { text: q.text, answer: q.answer };
+              return acc;
+            }, {});
+            onSave({ playerNames, questions: updatedQuestionsMap });
+          };
+
+          return (
+            <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 overflow-auto">
+              <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-4xl max-h-[90vh] overflow-y-auto transform scale-95 animate-fade-in-up transition-transform duration-300">
+                <h3 className="text-3xl font-bold mb-6 text-gray-800 text-center">Pengaturan Game & Pertanyaan</h3>
+
+                {/* Player Names */}
+                <div className="mb-8">
+                  <h4 className="text-2xl font-semibold mb-4 text-gray-700">Nama Pemain</h4>
+                  {playerNames.map((name, index) => (
+                    <div key={index} className="flex items-center mb-4">
+                      <div className={`w-8 h-8 rounded-full ${PLAYER_COLORS[index]} border-2 border-white mr-3 shadow-sm`}></div>
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => handlePlayerNameChange(index, e.target.value)}
+                        placeholder={`Nama Pemain ${index + 1}`}
+                        className="flex-grow p-3 border border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Questions */}
+                <div className="mb-8">
+                  <h4 className="text-2xl font-semibold mb-4 text-gray-700">Pertanyaan (20 Kotak Spesial)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {questionInputs.map((q, index) => (
+                      <div key={q.id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                        <p className="text-lg font-semibold mb-2 text-gray-800">Kotak Angka: {q.square}</p>
+                        <div className="mb-3">
+                          <label htmlFor={`question-text-${index}`} className="block text-sm font-medium text-gray-600 mb-1">Pertanyaan:</label>
+                          <textarea
+                            id={`question-text-${index}`}
+                            rows="3"
+                            value={q.text}
+                            onChange={(e) => handleQuestionChange(index, 'text', e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 text-base"
+                            placeholder="Masukkan pertanyaan di sini..."
+                          ></textarea>
+                        </div>
+                        <div>
+                          <label htmlFor={`question-answer-${index}`} className="block text-sm font-medium text-gray-600 mb-1">Jawaban:</label>
+                          <input
+                            id={`question-answer-${index}`}
+                            type="text"
+                            value={q.answer}
+                            onChange={(e) => handleQuestionChange(index, 'answer', e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 text-base"
+                            placeholder="Masukkan jawaban yang benar..."
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-4 mt-8">
+                  <button
+                    onClick={onClose}
+                    className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-xl shadow-md transition transform hover:scale-105 active:scale-95 duration-200"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition transform hover:scale-105 active:scale-95 duration-200"
+                  >
+                    Simpan Pengaturan
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Render the App component into the root div
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
+    </script>
+</body>
+</html>
